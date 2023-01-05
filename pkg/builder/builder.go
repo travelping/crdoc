@@ -4,6 +4,7 @@
 package builder
 
 import (
+	"crypto/sha1"
 	"embed"
 	"errors"
 	"fmt"
@@ -13,10 +14,12 @@ import (
 	"strings"
 	"text/template"
 
-	"fybrik.io/crdoc/pkg/functions"
 	"github.com/Masterminds/sprig/v3"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
+
+	"github.com/travelping/crdoc/pkg/functions"
 )
 
 // ModelBuilder is the entry point for docs generation
@@ -96,8 +99,60 @@ func (b *ModelBuilder) Add(crd *apiextensions.CustomResourceDefinition) error {
 	return nil
 }
 
+type mapKey struct {
+	Name     string
+	DescHash string
+}
+
+// First 7 chars of a hash of s.
+func hash(s string) string {
+	return fmt.Sprintf("%x", sha1.Sum([]byte(s)))[:7]
+}
+
+func (b *ModelBuilder) deduplicateTypeModels() {
+	for _, group := range b.Model.Groups {
+		group := group
+		for _, kinds := range group.Kinds {
+			kinds := kinds
+			modelsMap := make(map[mapKey]*TypeModel)
+
+			for idxTypes, typeModel := range kinds.Types {
+				typeModel := typeModel
+				curKey := mapKey{Name: typeModel.Name, DescHash: hash(typeModel.Description)}
+
+				if _, ok := modelsMap[curKey]; ok {
+					// Model already exists. Add the parent if not already added and continue.
+					for _, key := range typeModel.Parents {
+						if !slices.Contains(modelsMap[curKey].Parents, key) {
+							modelsMap[curKey].Parents = append(modelsMap[curKey].Parents, Parent{Key: key.Key, Name: key.Name})
+						}
+					}
+					continue
+				}
+				// Model didn't yet exist in our unique Models map, add it now.
+				typeModel.Order = idxTypes
+				modelsMap[curKey] = typeModel
+			}
+
+			// Remove old Models with duplicates
+			kinds.Types = nil
+
+			// Re-add the unique ones
+			for idx := range modelsMap {
+				kinds.Types = append(kinds.Types, modelsMap[idx])
+			}
+
+			slices.SortFunc(kinds.Types, func(a, b *TypeModel) bool {
+				return a.Order < b.Order
+			})
+		}
+	}
+}
+
 // Output writes markdown to the output direcory
 func (b *ModelBuilder) Output() error {
+	b.deduplicateTypeModels()
+
 	outputFilepath := filepath.Clean(b.OutputFilepath)
 
 	// create dirs if needed
@@ -136,15 +191,33 @@ func (b *ModelBuilder) Output() error {
 		Execute(f, *b.Model)
 }
 
+// Adjust the names in form of `parent.other.parent.type` to only `type`
+// and remove the array indicator from the name.
+func concise(name string) string {
+	idx := strings.LastIndex(name, ".")
+	if idx >= 0 {
+		name = name[idx+1:]
+	}
+	name = strings.TrimSuffix(name, "[]")
+	return name
+}
+
+// Return the number of markdown headings (#) by counting the dots from the full name.
+func headings(name string) string {
+	count := strings.Count(name, ".")
+	return strings.Repeat("#", count)
+}
+
 func (b *ModelBuilder) addTypeModels(groupModel *GroupModel, kindModel *KindModel, name string, schema *apiextensions.JSONSchemaProps, isTopLevel bool) (string, *TypeModel) {
 	typeName := getTypeName(schema)
 	if typeName == "object" && schema.Properties != nil {
 		// Create an object type model
 		typeModel := &TypeModel{
-			Name:        name,
-			Key:         b.createKey(name),
+			Name:        concise(name),
+			Key:         concise(name) + "-" + hash(schema.Description),
 			Description: schema.Description,
 			IsTopLevel:  isTopLevel,
+			Headings:    headings(name),
 		}
 		kindModel.Types = append(kindModel.Types, typeModel)
 
@@ -157,7 +230,7 @@ func (b *ModelBuilder) addTypeModels(groupModel *GroupModel, kindModel *KindMode
 			var fieldTypeKey *string = nil
 			if fieldTypeModel != nil {
 				fieldTypeKey = &fieldTypeModel.Key
-				fieldTypeModel.ParentKey = &typeModel.Key
+				fieldTypeModel.Parents = append(fieldTypeModel.Parents, Parent{Name: typeModel.Name, Key: typeModel.Key})
 			}
 
 			fieldDescription := property.Description
@@ -176,7 +249,7 @@ func (b *ModelBuilder) addTypeModels(groupModel *GroupModel, kindModel *KindMode
 		return typeName, typeModel
 	} else if typeName == "[]" {
 		childTypeName, childTypeModel := b.addTypeModels(groupModel, kindModel,
-			fmt.Sprintf("%s[index]", name), schema.Items.Schema, false)
+			fmt.Sprintf("%s[]", name), schema.Items.Schema, false)
 		return "[]" + childTypeName, childTypeModel
 	} else if typeName == "map[string]" {
 		childTypeName, childTypeModel := b.addTypeModels(groupModel, kindModel,

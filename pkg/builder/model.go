@@ -19,8 +19,8 @@ type GroupModel struct {
 
 type KindModel struct {
 	// Metadata PageMetadata `yaml:"metadata"`
-	Name string `yaml:"name"`
-
+	Name  string `yaml:"name"`
+	Key   string
 	Types []*TypeModel
 }
 
@@ -31,12 +31,19 @@ type PageMetadata struct {
 }
 
 type TypeModel struct {
+	Order       int
 	Name        string
 	Key         string
-	ParentKey   *string
+	Parents     []Parent
 	Description string
 	IsTopLevel  bool
+	Headings    string
 	Fields      []*FieldModel
+}
+
+type Parent struct {
+	Name string
+	Key  string
 }
 
 type FieldModel struct {
