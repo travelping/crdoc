@@ -1,12 +1,13 @@
-module fybrik.io/crdoc
+module github.com/travelping/crdoc
 
-go 1.17
+go 1.19
 
 require (
 	github.com/Masterminds/sprig/v3 v3.2.2
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/viper v1.13.0
+	golang.org/x/exp v0.0.0-20230108222341-4b8118a2686a
 	golang.org/x/text v0.5.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/apiextensions-apiserver v0.24.3
@@ -43,7 +44,7 @@ require (
 	github.com/subosito/gotenv v1.4.1 // indirect
 	golang.org/x/crypto v0.0.0-20220411220226-7b82a4e95df4 // indirect
 	golang.org/x/net v0.0.0-20220520000938-2e3eb7b945c2 // indirect
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f // indirect
+	golang.org/x/sys v0.1.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
